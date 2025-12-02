@@ -1,0 +1,494 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{csvsimple}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float} % for [H] exact figure placement
+\usepackage{placeins} % for \FloatBarrier
+\usepackage{pgf} % for \pgfmathprintnumber formatting
+\usepackage{tcolorbox}
+\tcbset{colback=white,colframe=black,boxrule=0.5pt,arc=2pt}
+% Utility for right-side inline annotations
+\newcommand{\annot}[1]{\hfill$\triangleright$\;#1}
+% Pseudocode indentation helpers (consistent, code-like widths)
+\newcommand{\pindent}{\hspace*{1.5em}}
+\newcommand{\pindentn}[1]{\hspace*{#1em}}
+% Pseudocode uses a descriptive style matching the project description
+\hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
+
+\title{Online Graph Coloring: Baselines, Degree Heuristics, and Empirical Results}
+\author{COMP 6651 Project}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+% Helper macro for figures (placed early to be available anywhere)
+\newcommand{\algfig}[3]{%
+  \begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\linewidth]{#1}
+    \caption{Algorithms vs $n$ for $k=#2$, $p=#3$. FirstFit (blue), CBIP (orange, $k=2$), HeuristicDegree (purple), BatchDegree (colors by batch size).}
+  \end{figure}
+}
+
+\section{Problem Description}
+Graph coloring represents a fundamental area of study in graph theory, originating from the famous Four Color Problem first posed in 1852 \cite{antoniadis2026prediction}. In online coloring, an algorithm must assign colors to graph vertices as they appear sequentially, without the ability to preview future vertices or modify previously assigned colors \cite{gyarfas1988online}. Research has shown that any such online approach may need at minimum $(2n/(\log n)^2)\chi (G)$ colors under worst-case conditions \cite{halldorsson1994lower}.
+
+The FirstFit algorithm stands out as perhaps the most straightforward online graph coloring method \cite{gyarfas1988online}. This greedy approach works by establishing a predetermined ordering of available colors, then assigning each new vertex the lowest-ranked color that preserves proper coloring constraints. Researchers have studied this algorithm extensively across various types of graphs \cite{gyarfas1988online,irani1994coloring,li2022online}. A different notable method, CBIP (Coloring Based on Interval Partitioning), was developed specifically for bipartite graphs: as each vertex $v = \sigma (i)$ is presented, the algorithm identifies the complete connected component containing v within the currently known portion of the graph \cite{lovasz1989online}.
+
+While FirstFit and CBIP provide foundational strategies, recent studies have explored enhancements through degree-based heuristics. For instance, reordering vertices based on their degrees before coloring can lead to improved performance \cite{irani1994coloring}. Additionally, batch processing techniques, where vertices are grouped and reordered within batches, have shown promise in reducing the number of colors used \cite{boyar2017batch}.
+
+The purpose of this project is to implement, test, and empirically compare simple online baselines and degree-based heuristics under reproducible conditions. We sweep graph size \(n\) and density \(p\), and analyze how ordering vertices by degree and per-batch degree reordering affect the efficiency of greedy coloring.
+
+\section{Implementation Details}
+
+\subsection*{Graph Data Structure}
+We use a lightweight, mutable, undirected graph. Vertices are positive integers; adjacency maps vertex IDs to sets of neighbors. Self-loops are ignored, and edges are stored symmetrically.
+
+% \paragraph{Pseudocode: Core Graph Routines}
+\begin{tcolorbox}
+\textbf{Core Graph Functions}\\
+\textit{Data structures:} adjacency map $\mathrm{adj}: V \to 2^V$ (sets of neighbours).\\[0.5em]
+\hspace*{1em} \textbf{INIT\_GRAPH}$(n)$: \\
+\hspace*{2em} define $\mathrm{adj}(i)\leftarrow \emptyset$ for $i\in[1..n]$; \\
+\hspace*{2em} \textbf{return} $\mathrm{adj}$ \\[0.5em]
+\hspace*{1em} \textbf{ENSURE\_VERTEX}$(\mathrm{adj}, v)$: \\
+\hspace*{2em} \textbf{if} $v\notin\mathrm{adj}$ \textbf{then} \\
+\hspace*{2em} $\mathrm{adj}(v)\leftarrow\emptyset$ \\[0.5em]
+\hspace*{1em} \textbf{ADD\_EDGE}$(\mathrm{adj}, u, v)$: \\
+\hspace*{2em} \textbf{if} $u=v$ \textbf{then return}; \\ 
+\hspace*{2em} \textbf{ENSURE\_VERTEX} on $u,v$; \\
+\hspace*{2em} $\mathrm{adj}(u)\leftarrow \mathrm{adj}(u)\cup\{v\}$; \\ 
+\hspace*{2em} $\mathrm{adj}(v)\leftarrow \mathrm{adj}(v)\cup\{u\}$ \\[0.5em]
+\hspace*{1em} \textbf{NEIGHBOURS}$(\mathrm{adj}, v)$: \\
+\hspace*{2em} \textbf{return} $\mathrm{adj}(v)$ \annot{empty if unseen} \\[0.5em]
+\hspace*{1em} \textbf{DEGREE}$(\mathrm{adj}, v)$: \\
+\hspace*{2em} \textbf{return} $|\mathrm{adj}(v)|$\\[0.5em]
+\hspace*{1em} \textbf{CONNECTED\_COMPONENT}$(\mathrm{adj}, s, \mathrm{Allowed})$:\\
+\hspace*{2em} \textbf{if} $s\notin\mathrm{Allowed}$ \textbf{then return} $\emptyset$\\
+\hspace*{2em} $\mathcal{C}\leftarrow\{s\}$; $Q\leftarrow [s]$\\
+\hspace*{2em} \textbf{while} $Q$ not empty \textbf{do}\\
+\hspace*{3em} $x\leftarrow$ pop\_front$(Q)$\\
+\hspace*{3em} \textbf{for} $y\in \mathrm{adj}(x)$ \textbf{do}\\
+\hspace*{4em} \textbf{if} $(y\in\mathrm{Allowed}) \wedge (y\notin \mathcal{C})$ \textbf{then} \\
+\hspace*{5em} $\mathcal{C}\leftarrow \mathcal{C}\cup\{y\}$; push\_back$(Q,y)$\\
+\hspace*{2em} \textbf{return} $\mathcal{C}$\\[0.5em]
+\hspace*{1em} \textbf{BIPARTITION\_COMPONENT}$(\mathrm{adj}, \mathcal{C})$:\\
+\hspace*{2em} $\mathrm{color}\leftarrow\emptyset$; $A\leftarrow\emptyset$; $B\leftarrow\emptyset$\\
+\hspace*{2em} \textbf{for each} $v\in\mathcal{C}$ \textbf{do}\\
+\hspace*{3em} \textbf{if} $v\in\mathrm{color}$ \textbf{then continue}\\
+\hspace*{3em} $\mathrm{color}\leftarrow\emptyset$; $A\leftarrow\emptyset$; $B\leftarrow\emptyset$\\
+\hspace*{3em} $Q\leftarrow [v]$; $\mathrm{color}(v)\leftarrow 0$; $A\leftarrow A\cup\{v\}$\\
+\hspace*{3em} \textbf{while} $Q$ not empty \textbf{do}\\
+\hspace*{4em} $x\leftarrow$ pop\_front$(Q)$\\
+\hspace*{4em} \textbf{for} $y\in\mathrm{adj}(x)\cap\mathcal{C}$ \textbf{do}\\
+\hspace*{5em} \textbf{if} $y\notin\mathrm{color}$ \textbf{then} \\
+\hspace*{6em} $\mathrm{color}(y)\leftarrow 1-\mathrm{color}(x)$ \\ 
+\hspace*{6em} $(A\text{ if }\mathrm{color}(y)=0\text{ else }B)\leftarrow \cdot\cup\{y\}$ \\
+\hspace*{6em} push\_back$(Q,y)$\\
+\hspace*{2em} \textbf{return} $(A,B)$
+\end{tcolorbox}
+
+\subsection*{Generator}
+We construct \(k\)-colorable graphs reproducibly by partitioning vertices into \(k\) independent sets and adding cross edges with probability \(p\).
+
+% \paragraph{Pseudocode: k-Colorable Graph Generator}
+\begin{tcolorbox}
+\textbf{Generate}$(n, k, p)$\\
+// Output: graph $G=(V,E)$ and online order $\sigma$\\
+\pindent $S[1..k] \leftarrow$ $k$ empty sets \annot{partition of $V$}\\
+\pindent \textbf{for} $i=1..k$ \textbf{do} $S[i] \leftarrow S[i] \cup \{i\}$ \annot{seed non-empty}\\
+\pindent \textbf{for} $v=k+1..n$ \textbf{do} $S[\mathrm{rand}(1..k)] \leftarrow S[\cdot] \cup \{v\}$\\
+\pindent $G \leftarrow$ \textbf{INIT\_GRAPH}$(n)$\\
+\pindent \textbf{for} $i=1..k$ \textbf{do}\\
+\pindentn{2} \textbf{for each} $v\in S[i]$ \textbf{do}\\
+\pindentn{3} \textbf{for} $j=1..k,\ j\neq i$ \textbf{do}\\
+\pindentn{4} choose $u\in S[j]$ uniformly; \textbf{ADD\_EDGE}$(G, v, u)$ \annot{mandatory cross edge}\\
+\pindentn{4} \textbf{for each} $u_2\in S[j]\setminus\{u\}$ \textbf{do}\\
+\pindentn{5} \textbf{if} $\mathrm{rand}()<p$ \textbf{then} \textbf{ADD\_EDGE}$(G, v, u_2)$ \annot{random cross edges}\\
+\pindent define $\sigma([1..n]) \leftarrow V$ and uniformly randomize order \annot{online presentation order}\\
+\pindent \textbf{return} $(G, \sigma)$
+\end{tcolorbox}
+
+\subsection*{Algorithms}
+We retain four algorithms; pseudocode mirrors the Python implementations.
+\begin{itemize}
+  \item \textbf{FirstFit (online)}: Greedy assignment of the smallest permissible color by arrival order.
+  \item \textbf{CBIP (online, bipartite-specific)}: Uses component bipartition; reported for \(k=2\).
+  \item \textbf{HeuristicDegree (semi-online reorder)}: Reorders the arrival sequence by non-increasing degree, then applies FirstFit.
+  \item \textbf{BatchDegree (semi-online)}: Processes batches of size \(t\), reorders within batch by degree, colors via FirstFit.
+\end{itemize}
+
+% \paragraph{Pseudocode: FirstFit}
+\begin{tcolorbox}
+\textbf{FirstFit}$(G)$\\
+// Input: $G=(V,E)$ — Current online graph\\
+\pindent define $c(V)$ \annot{stores coloring of $V$}\\
+\pindent initialize $c(V)$ to $\mathit{nil}$ \annot{no colors set yet}\\
+\pindent define $\sigma([1..n]) \leftarrow V$ \annot{presentation order of vertices, $\sigma:[1..|V|]\to V$}\\
+\pindent uniformly randomize order of $\sigma$ \annot{randomize online order of vertices}\\
+\pindent $i \leftarrow 1$\\
+\pindent define vertex $v$, set of vertices $N$\\
+\pindent \textbf{while} $i \le |V|$ \textbf{do}\\
+\pindentn{2} $v \leftarrow \sigma(i)$\\
+\pindentn{2} $N \leftarrow$ all neighbours of $v$ in $V \cap \sigma[1..i-1]$ \annot{include only current revealed vertices}\\
+\pindentn{2} $c(v) \leftarrow \min(\mathbb{N} \setminus c(N))$ \annot{$c(N)$ the set of colors of vertices in $N$}\\
+\pindentn{2} $i \leftarrow i + 1$\\
+\pindent \textbf{return} $c$
+\end{tcolorbox}
+
+% \paragraph{Pseudocode: HeuristicDegree}
+\begin{tcolorbox}
+\textbf{HeuristicDegree}$(G)$\\
+// Input: $G=(V,E)$ — Current offline reorder followed by online greedy\\
+\pindent compute $d(v)$ for all $v\in V$ \annot{static degree in $G$}\\
+\pindent define $\sigma([1..n]) \leftarrow V$\\
+\pindent sort $\sigma$ by $d(v)$ in non-increasing order \annot{highest degree first}\\
+\pindent \textbf{return} \textbf{FirstFit}$(G)$ on $\sigma$
+\end{tcolorbox}
+
+% \paragraph{Pseudocode: CBIP (k=2)}
+\begin{tcolorbox}
+\textbf{CBIP}$(G)$\\
+// Input: $G=(V,E)$ — Online bipartite coloring (reported for $k=2$)\\
+\pindent initialize $c(V)$ to $\mathit{nil}$; $R \leftarrow \emptyset$ \annot{$R$: revealed vertices}\\
+\pindent define $\sigma([1..n]) \leftarrow V$\\
+\pindent \textbf{for} $i=1$ to $|V|$ \textbf{do}\\
+\pindentn{2} $v \leftarrow \sigma(i)$ ; $R \leftarrow R \cup \{v\}$\\
+\pindentn{2} $\mathcal{C} \leftarrow$ \textsc{ConnectedComponent}$(G, v, R)$\\
+\pindentn{2} $(A,B) \leftarrow$ \textsc{Bipartition}$(G, \mathcal{C})$\\
+\pindentn{2} \textbf{if} $(v\notin A)$ \textbf{and} $(v\in B)$ \textbf{then} swap$(A,B)$\\
+\pindentn{2} $U \leftarrow \{ c(u) : u \in (B \cap R) \}$ \annot{colors used on the opposite side}\\
+\pindentn{2} $c(v) \leftarrow \min(\mathbb{N} \setminus U)$\\
+\pindent \textbf{return} $c$
+\end{tcolorbox}
+
+% \paragraph{Pseudocode: BatchDegree (size = $t$)}
+% \begin{tcolorbox}
+% \textbf{BatchDegree}$(G, t)$\\
+% // Input: $G=(V,E)$ — Semi-online batches of size $t$ with degree reorder\\
+% initialize $c(V)$ to $\mathit{nil}$; $R \leftarrow \emptyset$ ; compute $d(v)$ for all $v$\\
+% define $\sigma([1..n]) \leftarrow V$\\
+% \textbf{for} $s \in \{1, 1+t, 1+2t, \ldots\}$ \textbf{do}\\
+% \quad $B \leftarrow \sigma[s : s+t]$ \annot{current batch}\\
+% \quad reorder $B$ by $d(v)$ in non-increasing order\\
+% \quad \textbf{for each} $v \in B$ \textbf{do}\\
+% \quad\quad $N \leftarrow$ neighbours of $v$ in $R$\\
+% \quad\quad $c(v) \leftarrow \min(\mathbb{N} \setminus c(N))$\\
+% \quad\quad $R \leftarrow R \cup \{v\}$\\
+% \textbf{return} $c$
+\begin{tcolorbox}
+\textbf{BatchDegree}$(G, t)$\\
+// Input: $G=(V,E)$ — Semi-online batches of size $t$ with degree reorder\\
+\pindent initialize $c(V)$ to $\mathit{nil}$; $R \leftarrow \emptyset$ ; compute $d(v)$ for all $v$\\
+\pindent define $\sigma([1..n]) \leftarrow V$\\
+\pindent \textbf{for} $s \in \{1, 1+t, 1+2t, \ldots\}$ \textbf{do}\\
+\pindentn{2} $B \leftarrow \sigma[s : s+t]$ \annot{current batch}\\
+\pindentn{2} reorder $B$ by $d(v)$ in non-increasing order\\
+\pindentn{2} \textbf{for each} $v \in B$ \textbf{do}\\
+\pindentn{3} $N \leftarrow$ neighbours of $v$ in $R$\\
+\pindentn{3} $c(v) \leftarrow \min(\mathbb{N} \setminus c(N))$\\
+\pindentn{3} $R \leftarrow R \cup \{v\}$\\
+\pindent \textbf{return} $c$
+\end{tcolorbox}
+
+\section{Implementation correctness}
+\begin{itemize}
+  \item \textbf{Software correctness}: Unit tests validate that self-loops are ignored, parallel edges are not duplicated (set-based adjacency), adjacency is symmetric, and EDGES I/O is consistent (each undirected edge written once, tolerant reader).
+  \item \textbf{Algorithm correctness (examples)}: FirstFit yields proper colorings on random \(k\)-colorable graphs and uses 3 colors on a triangle; CBIP colors bipartite instances properly (e.g., 4-cycle uses at most 2 colors). We manually verified outputs on small graphs with known chromatic numbers, and used boundary testing to ensure robustness.
+\end{itemize}
+
+\section{Experimental Setup}
+Our experimental framework is implemented in Python 3.13.7 and organized as follows:
+\begin{itemize}
+  \item \textbf{Parameter grid}: Iterate over $n \in \{50, 100, 150, 200, 300, 400, 500, 600, 700, 800, 900, 1000\}$, $k \in \{2,3,4\}$, $p \in \{0.05,0.1,0.2,0.3\}$; for each triple generate $N=100$ independent instances.
+  \item \textbf{Deterministic artifacts}: For every instance we persist two plain-text files: an \texttt{xxx.edges} file (one undirected edge $u\ v$ per line, $u<v$) and an \texttt{xxx.order} file (vertex arrival permutation $\sigma$). 
+  \item \textbf{Reproducibility}: Algorithms never sample randomness internally when consuming a stored instance; they read the pre-generated edge list and vertex order, ensuring identical outcomes across runs/machines.
+  \item \textbf{Graph generation} (\texttt{generator/generate.py}): Implements the partition-based $k$-colorable construction plus probabilistic cross edges with probability $p$; writes artifacts only if absent (idempotent cache behavior).
+  \item \textbf{Core structure} (\texttt{graph.py}): Provides adjacency maintenance, component discovery, and bipartition logic used by CBIP; omits multi-edges and self-loops.
+  \item \textbf{Algorithms} (\texttt{algorithms/*.py}): Each file exposes a pure function mapping $(G,\sigma)$ (and batch size where relevant) to a coloring dictionary. No global state, facilitating multiprocessing.
+  \item \textbf{Simulation driver} (\texttt{simulations.py}): Orchestrates sweeps over the parameter grid, loads cached instances, dispatches algorithm runs, aggregates per-instance color counts, and computes competitive ratios.
+  \item \textbf{Metrics} (\texttt{metrics.py}): Defines helper routines (e.g., competitive ratio, summary statistics: mean, standard deviation) separated for clarity and testability.
+  \item \textbf{Parallelism}: Uses Python \texttt{multiprocessing} (process pool) for independent instances within the same $(n,k,p)$ slice when algorithms are stateless. BatchDegree may be run in the main process to avoid serialization of internal lambdas.
+  \item \textbf{Progress aggregation}: Intermediate results accumulated into in-memory structures, then flushed periodically to CSVs under \texttt{outputs/} (one per algorithm variant plus a consolidated enriched summary).
+  \item \textbf{Failure tolerance}: Instance-level exceptions (should none occur in normal operation) are logged and skipped without aborting the entire sweep.
+  \item \textbf{Main entry} (\texttt{main.py}): Provides CLI handling (e.g., selecting algorithms, enabling parallel mode, specifying output paths) and invokes simulation routines; supports partial grids for quick exploratory runs.
+  \item \textbf{Test coverage} (\texttt{tests/test\_sanity.py}): Validates structural invariants (symmetry, loop suppression) and correctness of edge writing/reading to guarantee reliability of persisted dataset before large simulations run.
+  \item \textbf{Post-processing} (notebooks / \texttt{plot\_results.ipynb}): Loads summary CSVs, produces fit tables, residual plots, and family figures; writes PNG outputs consumed by LaTeX report.
+\end{itemize}
+
+\section{Results}
+We report two simulation tracks. Each uses fixed instance artifacts (edge list and arrival order) for strict reproducibility and repeats $N=100$ times per $(n,k,p)$.
+
+% Common header macro for result tables
+\newcommand{\resultstableheader}{\toprule Algorithm & $k$ & $p$ & $n$ & $N$ & $\overline{\rho(Alg)}$ & $SD(\rho(Alg))$ \\
+\midrule}
+
+\subsection{Simulation I: FirstFit and CBIP}
+\textbf{Parameters and setup}
+\begin{itemize}
+  \item \textbf{Order}: Use the persisted online order $\sigma$ per instance; no reshuffling at evaluation time.
+  \item \textbf{FirstFit}: No tunable parameter; assigns smallest feasible colour on arrival.
+  \item \textbf{CBIP}: Reported only for $k=2$ (bipartite inputs). Computes the revealed component and a bipartition on-the-fly; colours from the opposite side's palette.
+  \item \textbf{Repetitions}: $N=100$ per $(n,k,p)$; performance summarised by mean and standard deviation of the competitive ratio.
+\end{itemize}
+
+% FirstFit (all k)
+\begin{longtable}{lrrrrrr}
+  \caption{FirstFit: results across $k\in\{2,3,4\}$ with density $p$.}\\
+  \resultstableheader
+  \endfirsthead
+  \resultstableheader
+  \endhead
+  \midrule
+  \multicolumn{7}{r}{Continued on next page}
+  \endfoot
+  \bottomrule
+  \endlastfoot
+  \csvreader[separator=comma,head to column names]{../../outputs/summary_firstfit.csv}{Base=\Base,k=\k,pVal=\p,n=\n,N=\N,AvgCompetitiveRatio=\avg,StdDev=\sd}{%
+    FirstFit & \k & \pgfmathprintnumber[fixed,precision=2]{\p} & \n & \N & \pgfmathprintnumber[fixed,precision=2]{\avg} & \pgfmathprintnumber[fixed,precision=2]{\sd} \\
+  }
+\end{longtable}
+
+% CBIP (k=2)
+\begin{longtable}{lrrrrrr}
+  \caption{CBIP: results for bipartite inputs ($k=2$) with density $p$.}\\
+  \resultstableheader
+  \endfirsthead
+  \resultstableheader
+  \endhead
+  \midrule
+  \multicolumn{7}{r}{Continued on next page}
+  \endfoot
+  \bottomrule
+  \endlastfoot
+  \csvreader[separator=comma,head to column names]{../../outputs/summary_cbip.csv}{Base=\Base,k=\k,pVal=\p,n=\n,N=\N,AvgCompetitiveRatio=\avg,StdDev=\sd}{%
+    CBIP & \k & \pgfmathprintnumber[fixed,precision=2]{\p} & \n & \N & \pgfmathprintnumber[fixed,precision=2]{\avg} & \pgfmathprintnumber[fixed,precision=2]{\sd} \\
+  }
+\end{longtable}
+
+\subsection{Simulation II: HeuristicDegree and BatchDegree}
+\textbf{Parameterisation and heuristic choices}
+\begin{itemize}
+  \item \textbf{HeuristicDegree}: Offline reorder by non-increasing static degree, then FirstFit. No extra parameter beyond using the same fixed $\sigma$ as baseline to define $V$.
+  \item \textbf{BatchDegree}: Semi-online with batch size $t$; within each batch, reorder by static degree and colour via FirstFit. We report $t\in\{10,50\}$ as representative settings, chosen for a good speed/quality trade-off observed in pilot runs.
+  \item \textbf{Alternatives explored (not selected)}: We evaluated several on-arrival colouring heuristics: (i) \emph{Randomised colour} tie-breaking, (ii) \emph{MRU} preference (biasing towards most recently used colour), and (iii) \emph{Least-used} global colour selection. Across $(n,p)$, these yielded competitive ratios that were comparable to or worse than FirstFit and significantly worse than BatchDegree, especially at higher densities. Consequently, we focus on BatchDegree for clearer improvements.
+  \item \textbf{Impact of $t$}: Larger $t$ generally reduces colours by enabling more effective local ordering, with diminishing returns beyond $t\approx 50$ at our scales.
+\end{itemize}
+
+% HeuristicDegree (all k)
+\begin{longtable}{lrrrrrr}
+  \caption{HeuristicDegree: degree-sorted FirstFit across $k\in\{2,3,4\}$ with density $p$.}\\
+  \resultstableheader
+  \endfirsthead
+  \resultstableheader
+  \endhead
+  \midrule
+  \multicolumn{7}{r}{Continued on next page}
+  \endfoot
+  \bottomrule
+  \endlastfoot
+  \csvreader[separator=comma,head to column names]{../../outputs/summary_heuristic.csv}{Base=\Base,k=\k,pVal=\p,n=\n,N=\N,AvgCompetitiveRatio=\avg,StdDev=\sd}{%
+    FirstFit(HeuristicDegree) & \k & \pgfmathprintnumber[fixed,precision=2]{\p} & \n & \N & \pgfmathprintnumber[fixed,precision=2]{\avg} & \pgfmathprintnumber[fixed,precision=2]{\sd} \\
+  }
+\end{longtable}
+
+% BatchDegree (sizes 10,50; all k)
+\begin{longtable}{lrrrrrrr}
+  \caption{BatchDegree: degree-ordered batches with explicit batch size and density $p$.}\\
+  \textbf{Algorithm} & $k$ & $p$ & \textbf{BatchSize} & $n$ & $N$ & $\overline{\rho(Alg)}$ & $SD(\rho(Alg))$ \\
+  \midrule
+  \endfirsthead
+  \textbf{Algorithm} & $k$ & $p$ & \textbf{BatchSize} & $n$ & $N$ & $\overline{\rho(Alg)}$ & $SD(\rho(Alg))$ \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{8}{r}{Continued on next page}
+  \endfoot
+  \bottomrule
+  \endlastfoot
+  \csvreader[separator=comma,head to column names]{../../outputs/summary_batch.csv}{Base=\Base,k=\k,pVal=\p,BatchSize=\bs,n=\n,N=\N,AvgCompetitiveRatio=\avg,StdDev=\sd}{%
+    \Base & \k & \pgfmathprintnumber[fixed,precision=2]{\p} & \bs & \n & \N & \pgfmathprintnumber[fixed,precision=2]{\avg} & \pgfmathprintnumber[fixed,precision=2]{\sd} \\
+  }
+\end{longtable}
+
+\section{Analysis}
+We now analyse outcomes for the two simulation tracks. Each subsection first presents raw behavior (grouped figures) followed by model-fitting interpretation. Competitive ratio $\rho=\text{used colors}/k$ closer to 1 indicates tighter adherence to the target palette.
+
+\subsection{Simulation I (FirstFit and CBIP)}
+\paragraph{Grouped FirstFit performance} A composite grid (Figure~\ref{fig:firstfit-grid}) summarises $k\in\{2,3,4\}$ across densities $p\in\{0.05,0.1,0.2,0.3\}$.
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\linewidth]{../../outputs/firstfit_grid.png}
+  \caption{FirstFit competitive ratio vs $n$ for $k=2,3,4$ across densities $p$.}
+  \label{fig:firstfit-grid}
+\end{figure}
+\noindent\textit{FirstFit grid:} In this dataset, several curves show that higher density $p$ corresponds to \emph{lower} competitive ratios over large ranges of $n$, and lines can cross. This non-monotonic effect suggests that denser instances sometimes create more regular neighbourhoods where FirstFit reuses colours efficiently, whereas sparser instances trigger extra colours earlier due to irregular conflicts. The $k=2$ panels stay near $\rho\approx1$ (consistent with near-bipartite behaviour). For $k=3$ and $k=4$, variability increases and the ordering by $p$ is not stable across all $n$; both increasing and decreasing segments with $p$ appear. Overall, the impact of $p$ on FirstFit is \textbf{non-monotonic} in our results, with several cases where larger $p$ yields lower $\rho$.
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.75\linewidth]{../../outputs/cbip_k2_family.png}
+  \caption{CBIP competitive ratio vs $n$ for $k=2$ across densities $p$ (nearly flat).}
+\end{figure}
+\noindent\textit{CBIP ($k=2$):} CBIP traces almost constant $\rho\approx 1$ across $n$ and all $p$ tested. Its BFS bipartition guarantees minimal colors required for bipartite substructure revealed so far. Variance is negligible compared to FirstFit.
+
+\begin{tcolorbox}[title=\textbf{Why is k restricted to 2 in CBIP?}, colback=white,colframe=black,colbacktitle=gray!15,coltitle=black]
+Bipartition offers a linear-time certificate and immediate 2-coloring. Extending CBIP beyond bipartite graphs would require online $k$-coloring (NP-complete for $k\ge 3$), removing tractable structural guarantees and making per-arrival component re-coloring infeasible at our scales. Hence we restrict CBIP reporting to $k=2$.
+\end{tcolorbox}
+
+\paragraph{Model fitting} To characterise growth, we fitted $\log n$, $\sqrt{n}$, and quadratic models to mean $\rho$ vs $n$ per $(k,p)$. For FirstFit, $\log n$ often suffices at low $p$ (sublinear growth of conflicts), while higher $p$ shifts preference toward $\sqrt{n}$ or quadratic where acceleration of conflicts appears. CBIP exhibits near-constant behavior, with $a + b\log n$ degenerating to an almost flat line and lowest RMSE.
+
+\subsubsection*{Best-fit summaries}
+\csvreader[head to column names, filter equal={Alg}{FirstFit}, respect all]{../../outputs/fit_summary_sim1.csv}{}%
+{\textbf{FirstFit }$k$=\k, $p$=\p: model=\best_model, RMSE=\rmse, AIC=\aic\\}
+\csvreader[head to column names, filter equal={Alg}{CBIP}, respect all]{../../outputs/fit_summary_sim1.csv}{}%
+{\textbf{CBIP }$k$=\k, $p$=\p: model=\best_model, RMSE=\rmse, AIC=\aic\\}
+
+% \paragraph{Representative fits}
+\begin{figure}[H]
+  \centering
+  \begin{subfigure}{.32\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../../outputs/fit_FirstFit_k2_p0.05.png}
+    \caption{Best fit (poly deg 2)}
+  \end{subfigure}\hfill
+  \begin{subfigure}{.32\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../../outputs/fitlog_FirstFit_k2_p0.05.png}
+    \caption{Log fit comparison}
+  \end{subfigure}\hfill
+  \begin{subfigure}{.32\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../../outputs/resid_FirstFit_k2_p0.05.png}
+    \caption{Residuals (best model)}
+  \end{subfigure}
+  \caption{FirstFit $k=2,p=0.05$: mild sublinear growth. Quadratic (degree-2) model selected (lowest RMSE); log$(n)$ fit shows similar gentle curvature with slightly higher error.}
+\end{figure}
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=.48\textwidth]{../../outputs/fit_CBIP_k2_p0.05.png}\hfill
+  \includegraphics[width=.48\textwidth]{../../outputs/resid_CBIP_k2_p0.05.png}
+  \caption{CBIP $k=2,p=0.05$: near-flat residuals confirm structural optimality.}
+\end{figure}
+\FloatBarrier
+
+\subsection{Simulation II (HeuristicDegree and BatchDegree)}
+
+\paragraph{Grouped comparison figures by density} For each $k$, we present a 2\,x\,2 grid of $p\in\{0.05,0.1,0.2,0.3\}$; each subplot compares FirstFit, HeuristicDegree, and BatchDegree variants over $n$.
+\begin{figure}[H]
+  \centering
+  \begin{subfigure}{.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../../outputs/family_k2_p0.05.png}
+    \caption{$k=2,\ p=0.05$}
+  \end{subfigure}\hfill
+  \begin{subfigure}{.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../../outputs/family_k2_p0.1.png}
+    \caption{$k=2,\ p=0.1$}
+  \end{subfigure}
+  \begin{subfigure}{.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../../outputs/family_k2_p0.2.png}
+    \caption{$k=2,\ p=0.2$}
+  \end{subfigure}\hfill
+  \begin{subfigure}{.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../../outputs/family_k2_p0.3.png}
+    \caption{$k=2,\ p=0.3$}
+  \end{subfigure}
+  \caption{Simulation II grouped comparison for $k=2$: FirstFit vs HeuristicDegree vs BatchDegree across densities.}
+\end{figure}
+\noindent\textit{Analysis ($k=2$):} HeuristicDegree reduces $\rho$ relative to FirstFit across all densities and remains the strongest variant. \textbf{However, BatchDegree still improves upon raw FirstFit at higher densities when the batch size is larger.} For example, at $p=0.2$ and $n=1000$ FirstFit attains $\rho\approx1.97$ while BatchDegree($t=50$) lowers this to $\approx1.48$ (\(~25\%\) reduction); at $p=0.3$ and $n=1000$ FirstFit is $\approx1.64$ versus $\approx1.16$ for BatchDegree($t=50$) (\(~29\%\) reduction). Smaller batches ($t=10$) yield weaker or inconsistent gains. Thus the ordering hierarchy is HeuristicDegree $<$ BatchDegree($t=50$) $<$ FirstFit (in $\rho$) for dense settings, while BatchDegree may revert closer to FirstFit at lower $p$.
+
+\begin{figure}[H]
+  \centering
+  \begin{subfigure}{.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../../outputs/family_k3_p0.05.png}
+    \caption{$k=3,\ p=0.05$}
+  \end{subfigure}\hfill
+  \begin{subfigure}{.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../../outputs/family_k3_p0.1.png}
+    \caption{$k=3,\ p=0.1$}
+  \end{subfigure}
+  \begin{subfigure}{.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../../outputs/family_k3_p0.2.png}
+    \caption{$k=3,\ p=0.2$}
+  \end{subfigure}\hfill
+  \begin{subfigure}{.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../../outputs/family_k3_p0.3.png}
+    \caption{$k=3,\ p=0.3$}
+  \end{subfigure}
+  \caption{Simulation II grouped comparison for $k=3$: FirstFit vs HeuristicDegree vs BatchDegree across densities.}
+\end{figure}
+\noindent\textit{Analysis ($k=3$):} HeuristicDegree remains the strongest performer, but larger batches again provide \textbf{meaningful improvement over FirstFit in dense regimes}. At $p=0.2$, $n=1000$ FirstFit reaches $\rho\approx3.69$ while BatchDegree($t=50$) reduces this to $\approx2.94$ (\(~20\%\) reduction); at $p=0.3$, $n=1000$ FirstFit is $\approx2.35$ versus $\approx1.58$ for BatchDegree($t=50$) (\(~33\%\) reduction). BatchDegree($t=10$) offers smaller or unstable gains. Ordering relationship for dense cases: HeuristicDegree $<$ BatchDegree($t=50$) $<$ FirstFit. For sparser graphs the BatchDegree curves can drift upward toward FirstFit, reflecting diminished benefit when local batches see fewer high-degree conflicts to exploit.
+
+\begin{figure}[H]
+  \centering
+  \begin{subfigure}{.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../../outputs/family_k4_p0.05.png}
+    \caption{$k=4,\ p=0.05$}
+  \end{subfigure}\hfill
+  \begin{subfigure}{.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../../outputs/family_k4_p0.1.png}
+    \caption{$k=4,\ p=0.1$}
+  \end{subfigure}
+  \begin{subfigure}{.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../../outputs/family_k4_p0.2.png}
+    \caption{$k=4,\ p=0.2$}
+  \end{subfigure}\hfill
+  \begin{subfigure}{.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../../outputs/family_k4_p0.3.png}
+    \caption{$k=4,\ p=0.3$}
+  \end{subfigure}
+  \caption{Simulation II grouped comparison for $k=4$: FirstFit vs HeuristicDegree vs BatchDegree across densities.}
+\end{figure}
+\noindent\textit{Analysis ($k=4$):} HeuristicDegree again delivers the lowest ratios. BatchDegree($t=50$) shows \textbf{modest} improvement over FirstFit at the highest density ($p=0.3$, $n=1000$: $\rho$ drops from $\approx3.08$ to $\approx2.71$, \(~12\%\) reduction) while at $p=0.2$ improvements do not materialise (BatchDegree slightly worse than FirstFit for large $n$). This indicates diminishing returns of limited-window reordering as $k$ grows: global sorting preserves advantages, whereas intra-batch ordering may not sufficiently coordinate color reuse across partitions.
+
+
+\section{Conclusion}
+This project implemented and rigorously evaluated online graph coloring baselines (FirstFit, CBIP) and degree-based ordering heuristics (HeuristicDegree, BatchDegree) over reproducible, cached datasets spanning $n$, $k$, and $p$. We standardised algorithm descriptions, ensured correctness via unit tests, and produced a coherent analysis pipeline (figures, fits, and summaries).
+
+Key findings:
+\begin{itemize}
+  \item \textbf{FirstFit behavior}: Competitive ratio trends with density $p$ are non-monotonic; higher $p$ can yield lower ratios via more regular neighbourhoods enabling color reuse. Growth with $n$ is generally mild to sublinear.
+  \item \textbf{CBIP (k=2)}: Near-optimal ($\rho\approx1$) and highly stable across $n$ and $p$, confirming bipartite structural leverage.
+  \item \textbf{Ordering pays off (nuanced)}: HeuristicDegree is consistently best. BatchDegree with larger batches ($t=50$) still achieves substantial reductions vs raw FirstFit in dense settings (e.g., $\approx25\%$ for $k=2$, $p=0.2$; $\approx33\%$ for $k=3$, $p=0.3$; $\approx12\%$ for $k=4$, $p=0.3$), though it does not surpass the global ordering and may revert toward FirstFit in sparser cases.
+  \item \textbf{Model fits}: Simple forms (log, sqrt, quadratic) capture mild growth; quadratic often attains the lowest error while log remains a close, interpretable alternative.
+\end{itemize}
+
+% Future considerations:
+% \begin{itemize}
+%   \item \textbf{Error bands and robustness}: Incorporate variance bands and sensitivity analyses (different generators, arrival permutations) to better characterise variability and generality.
+%   \item \textbf{Heuristic tuning}: Explore adaptive batching and hybrid orderings (e.g., degree + community features) to further compress conflicts.
+%   \item \textbf{Scalability}: Extend experiments to larger $n$ and broader $p$ ranges, and profile parallel execution for faster sweeps.
+%   \item \textbf{Beyond bipartite}: Investigate tractable structure-aware strategies for $k\ge3$ (e.g., local recoloring heuristics) while acknowledging NP-hardness constraints.
+% \end{itemize}
+
+Overall, our efforts produced a clean, reproducible framework and empirical evidence that strategic ordering, particularly in batched form, meaningfully improves online coloring quality, while CBIP remains the gold standard for bipartite inputs.
+
+% (Tables moved into Section 5 subsections above.)
+\section{Team Work Distribution}
+List tasks per member (generator, algorithms, experiments, analysis, writing, QA).
+
+% \section{References}
+% Any references used to implement the algorithms in your project. You must not copy code from any sources.
+\nocite{antoniadis2026prediction,gyarfas1988online,halldorsson1994lower,irani1994coloring,li2022online,lovasz1989online,boyar2017batch}
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

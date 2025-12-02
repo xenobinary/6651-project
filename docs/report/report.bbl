@@ -1,0 +1,38 @@
+\begin{thebibliography}{1}
+
+\bibitem{antoniadis2026prediction}
+Antonios Antoniadis, Hajo Broersma, and Yue Meng.
+\newblock Incorporating predictions in online graph coloring algorithms.
+\newblock {\em Discrete Applied Mathematics}, 379:434--445, 2026.
+
+\bibitem{boyar2017batch}
+Joan Boyar, Leah Epstein, Lene Favrholdt, and Asaf Levin.
+\newblock Batch coloring of graphs.
+\newblock {\em Algorithmica}, 80, 10 2017.
+
+\bibitem{gyarfas1988online}
+Andr{\'a}s Gy{\'a}rf{\'a}s and Jen{\H{o}} Lehel.
+\newblock On-line and first fit colorings of graphs.
+\newblock {\em Journal of Graph Theory}, 12:217--227, 1988.
+
+\bibitem{halldorsson1994lower}
+Magn{\'u}s~M. Halld{\'o}rsson and Mario Szegedy.
+\newblock Lower bounds for on-line graph coloring.
+\newblock {\em Theoretical Computer Science}, 130(1):163--174, 1994.
+
+\bibitem{irani1994coloring}
+Sandy Irani.
+\newblock Coloring inductive graphs on-line.
+\newblock {\em Algorithmica}, 11(1):53--72, 1994.
+
+\bibitem{li2022online}
+Yue Li, V.~V. Narayan, and Denis Pankratov.
+\newblock Online coloring and a new type of adversary for online graph problems.
+\newblock {\em Algorithmica}, 84(5):1232--1251, 2022.
+
+\bibitem{lovasz1989online}
+L{\'a}szl{\'o} Lov{\'a}sz, Michael Saks, and William~T. Trotter.
+\newblock An on-line graph coloring algorithm with sublinear performance ratio.
+\newblock {\em Discrete Mathematics}, 75(1--3):319--325, 1989.
+
+\end{thebibliography}
