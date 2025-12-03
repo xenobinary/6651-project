@@ -128,12 +128,12 @@ We retain four algorithms; pseudocode mirrors the Python implementations.
 
 % \paragraph{Pseudocode: FirstFit}
 \begin{tcolorbox}
-\textbf{FirstFit}$(G)$\\
-// Input: $G=(V,E)$ — Current online graph\\
+\textbf{FirstFit}$(G, \sigma)$\\
+// Input: $G=(V,E)$: Current online graph, $\sigma(1..|V|)$: The presentation order of the vertices.\\
 \pindent define $c(V)$ \annot{stores coloring of $V$}\\
 \pindent initialize $c(V)$ to $\mathit{nil}$ \annot{no colors set yet}\\
-\pindent define $\sigma([1..n]) \leftarrow V$ \annot{presentation order of vertices, $\sigma:[1..|V|]\to V$}\\
-\pindent uniformly randomize order of $\sigma$ \annot{randomize online order of vertices}\\
+% \pindent define $\sigma([1..n]) \leftarrow V$ \annot{presentation order of vertices, $\sigma:[1..|V|]\to V$}\\
+% \pindent uniformly randomize order of $\sigma$ \annot{randomize online order of vertices}\\
 \pindent $i \leftarrow 1$\\
 \pindent define vertex $v$, set of vertices $N$\\
 \pindent \textbf{while} $i \le |V|$ \textbf{do}\\
