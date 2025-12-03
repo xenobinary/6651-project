@@ -6,7 +6,7 @@
 *.synctex.gz
 *.fdb_latexmk
 *.fls
-*.pdf
+# *.pdf
 
 # Editor / OS files
 .vscode/
