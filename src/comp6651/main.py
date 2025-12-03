@@ -15,7 +15,7 @@ def main():
     # parser.add_argument("--k", type=int, default=2)
     # parser.add_argument("--p", type=float, default=0.1)
     # parser.add_argument("--N", type=int, default=5, help="Number of graphs for generation")
-    # parser.add_argument("--out", type=str, default="data/generated", help="Output directory for EDGES files or summaries")
+    parser.add_argument("--out", type=str, default="data/generated", help="Output directory for EDGES files or summaries")
     parser.add_argument("--run-sims", action="store_true", help="Run simulations (requires dataset for reproducibility)")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--prepare-dataset", action="store_true", help="Pre-generate full dataset for simulations")
