@@ -15,7 +15,7 @@ def main():
     # parser.add_argument("--k", type=int, default=2)
     # parser.add_argument("--p", type=float, default=0.1)
     # parser.add_argument("--N", type=int, default=5, help="Number of graphs for generation")
-    parser.add_argument("--out", type=str, default="data/generated", help="Output directory for EDGES files or summaries")
+    parser.add_argument("--out", type=str, default="outputs", help="Output directory for summaries and images")
     parser.add_argument("--run-sims", action="store_true", help="Run simulations (requires dataset for reproducibility)")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--prepare-dataset", action="store_true", help="Pre-generate full dataset for simulations")
@@ -70,23 +70,6 @@ def main():
             batch_sizes=batch_sizes,
         )
         return
-
-    # Quick demo: generate one graph, run algorithms, print ratios
-    # g, _ = generate_online_k_colorable_graph(args.n, args.k, args.p)
-    # order = random_order(args.n)
-    # ff = first_fit(g, order)
-    # ratio_ff = compute_competitive_ratio(ff, args.k)
-    # print(f"FirstFit: used {max(ff.values()) if ff else 0} colors, ratio={ratio_ff:.3f}")
-
-    # if args.k == 2:
-    #     c = cbip(g, order)
-    #     ratio_c = compute_competitive_ratio(c, 2)
-    #     print(f"CBIP: used {max(c.values()) if c else 0} colors, ratio={ratio_c:.3f}")
-
-    # ffh = first_fit_heuristic_degree_order(g, order)
-    # ratio_ffh = compute_competitive_ratio(ffh, args.k)
-    # print(f"FirstFit(HeuristicDegree): used {max(ffh.values()) if ffh else 0} colors, ratio={ratio_ffh:.3f}")
-
 
 if __name__ == "__main__":
     main()

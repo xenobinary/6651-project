@@ -6,6 +6,8 @@
 *.synctex.gz
 *.fdb_latexmk
 *.fls
+*.bbl
+*.blg
 # *.pdf
 
 # Editor / OS files
