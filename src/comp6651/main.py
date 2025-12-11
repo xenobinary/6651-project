@@ -10,7 +10,7 @@ from .simulations import run_all, prepare_dataset
 
 def main():
     parser = argparse.ArgumentParser(description="COMP 6651 Online Graph Coloring Project")
-    parser.add_argument("--generate", action="store_true", help="Only generate EDGES files and exit")
+    # parser.add_argument("--generate", action="store_true", help="Only generate EDGES files and exit")
     # parser.add_argument("--n", type=int, default=50)
     # parser.add_argument("--k", type=int, default=2)
     # parser.add_argument("--p", type=float, default=0.1)
@@ -31,14 +31,14 @@ def main():
     if args.seed is not None:
         random.seed(args.seed)
 
-    if args.generate:  # Legacy single parameter generation
-        os.makedirs(args.out, exist_ok=True)
-        for i in range(args.N):
-            g, parts = generate_online_k_colorable_graph(args.n, args.k, args.p)
-            path = os.path.join(args.out, f"graph_n{args.n}_k{args.k}_idx{i+1}.edges")
-            write_edges(g, path)
-        print(f"Generated {args.N} graphs at {args.out}")
-        return
+    # if args.generate:  # Legacy single parameter generation
+    #     os.makedirs(args.out, exist_ok=True)
+    #     for i in range(args.N):
+    #         g, parts = generate_online_k_colorable_graph(args.n, args.k, args.p)
+    #         path = os.path.join(args.out, f"graph_n{args.n}_k{args.k}_idx{i+1}.edges")
+    #         write_edges(g, path)
+    #     print(f"Generated {args.N} graphs at {args.out}")
+    #     return
 
     if args.prepare_dataset:
         # Fixed parameter sets (could expose later via CLI if needed)
